@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+
+# rm -rf /System/Library/StartupItems/*
+
+echo
+echo "    _ __           _      _  __                          "
+echo "   (_) /_   ____ _(_)___ ( )/ /_   ___  ____ ________  __"
+echo "  / / __/  / __ (/ / __ \|// __/ / _ \/ __)/ ___/ / / /"
+echo " / / /_   / /_/ / / / / / / /_   /  __/ /_/ (__  ) /_/ / "
+echo "/_/\__/   \__,_/_/_/ /_/  \__/   \___/\__,_/____/\__, /  "
+echo "                                                /____/   "
+echo
+
+SYSTEM_PATHS=(/System/Library/LaunchDaemons /System/Library/LaunchAgents)
+USER_DIRS=("/Users/$USER/Library/LaunchAgents" "/Library/LaunchAgents")
+BLACKLIST_WORDS=("apple")
+# # Root
+# /System/Library/LaunchDaemons
+function unload() {
+  launchctl unload -w /Users/$USER/Library/LaunchAgents/$1
+}
+
+function contains() {
+  local item pattern
+  for item; do
+    shift
+    for pattern in "$@"; do
+      [[ "$item" == *"$pattern"* ]] && return 0
+    done
+  done
+  return 1
+}
+
+function launchctl_search {
+  matches=()
+  echo "🧐 Searching for \"$1\" in launchctl services.."
+  while IFS= read -r line; do
+    if contains "$line" "${BLACKLIST_WORDS[@]}"; then
+      echo "    - 🚫 $line"
+      continue
+    else
+      echo "    + 🔪 $line ..."
+      matches+=("$line")
+    fi
+  done < <(launchctl list | awk -F ' ' '{print $3}' | grep -i "$1")
+  all+=("${matches[@]}")
+
+  if [ ${#all[@]} -eq 0 ]; then
+    echo "🤖 Found no matches"
+    exit 1
+  else
+    echo "🤖 Found ${#all[@]} matches in total"
+    read -p "⚠️  Continue? (Y/N): " confirm && [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]] || exit 1
+  fi
+
+  echo "Removing ${#all[@]} services..."
+
+  for match in "${all[@]}"; do
+    echo "🔪 Removing $match"
+    launchctl unload -w $match
+    launchctl remove $match
+  done
+}
+
+function search {
+  for path in "${USER_DIRS[@]}"; do
+    matches=()
+    echo "🧐 Searching \"$path\" for \"$1\".."
+    while IFS= read -r line; do
+      if contains "$line" "${BLACKLIST_WORDS[@]}"; then
+        echo "    - 🚫 $line"
+        continue
+      else
+        echo "    + 🔪 $line ..."
+        matches+=("$line")
+      fi
+    done < <(find "$path" -name "*$1*" -type f)
+    echo "    = 🤖 Found ${#matches[@]} matches"
+    all+=("${matches[@]}")
+  done
+  echo "🤖 Found ${#all[@]} matches in total"
+  echo "---"
+
+  read -p "Continue? (Y/N): " confirm && [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]] || exit 1
+
+  for match in "${all[@]}"; do
+    echo "🔪 Removing $match"
+    launchctl stop $match
+    launchctl remove $match
+  done
+}
+
+if [ "$1" == "search" ]; then
+  search $2
+elif [ "$1" == "services" ]; then
+  launchctl_search $2
+else
+  echo "🤷‍♂️ Unknown command"
+fi
